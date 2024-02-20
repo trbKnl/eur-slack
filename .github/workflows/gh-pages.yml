@@ -24,6 +24,9 @@ jobs:
       - name: Build release
         run: npm run release
 
+      - name: rm build dir
+        run: rm -rf ./build
+
       - name: Unpack release
         run: unzip -o release.zip -d build
 
