@@ -1,165 +1,195 @@
-import port.api.props as props
-from port.api.commands import (CommandSystemDonate, CommandUIRender, CommandSystemExit)
+import logging
+import json
+import io
+from typing import Optional, Literal
+
 
 import pandas as pd
-import zipfile
 
-def process(session_id: str):
-    platform = "Platform of interest"
+import port.api.props as props
+import port.slack as slack
 
-    # Start of the data donation flow
-    while True:
-        # Ask the participant to submit a file
-        file_prompt = generate_file_prompt(platform, "application/zip, text/plain")
-        file_prompt_result = yield render_page(platform, file_prompt)
+from port.api.commands import (CommandSystemDonate, CommandUIRender, CommandSystemExit)
 
-        # If the participant submitted a file: continue
-        if file_prompt_result.__type__ == 'PayloadString':
+LOG_STREAM = io.StringIO()
 
-            # Validate the file the participant submitted
-            # In general this is wise to do 
-            is_data_valid = validate_the_participants_input(file_prompt_result.value)
+logging.basicConfig(
+    #stream=LOG_STREAM,
+    level=logging.DEBUG,
+    format="%(asctime)s --- %(name)s --- %(levelname)s --- %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
+)
 
-            # Happy flow:
-            # The file the participant submitted is valid
-            if is_data_valid == True:
+LOGGER = logging.getLogger("script")
 
-                # Extract the data you as a researcher are interested in, and put it in a pandas DataFrame
-                # Show this data to the participant in a table on screen
-                # The participant can now decide to donate
-                extracted_data = extract_the_data_you_are_interested_in(file_prompt_result.value)
-                consent_prompt = generate_consent_prompt(extracted_data)
-                consent_prompt_result = yield render_page(platform, consent_prompt)
 
-                # If the participant wants to donate the data gets donated
-                if consent_prompt_result.__type__ == "PayloadJSON":
-                    yield donate(f"{session_id}-{platform}", consent_prompt_result.value)
+def process(session_id):
+    LOGGER.info("Starting the donation flow")
+    yield donate_logs(f"{session_id}-tracking")
 
-                break
+    platforms = [ 
+        ("Slack", extract_slack, slack.validate), 
+    ]
 
-            # Sad flow:
-            # The data was not valid, ask the participant to retry
-            if is_data_valid == False:
-                retry_prompt = generate_retry_prompt(platform)
-                retry_prompt_result = yield render_page(platform, retry_prompt)
+    # progress in %
+    subflows = len(platforms)
+    steps = 2
+    step_percentage = (100 / subflows) / steps
+    progress = 0
 
-                # The participant wants to retry: start from the beginning
-                if retry_prompt_result.__type__ == 'PayloadTrue':
-                    continue
-                # The participant does not want to retry or pressed skip
-                else:
+    # For each platform
+    # 1. Prompt file extraction loop
+    # 2. In case of succes render data on screen
+    for platform in platforms:
+        platform_name, extraction_fun, validation_fun = platform
+
+        table_list = None
+        progress += step_percentage
+
+        # Prompt file extraction loop
+        while True:
+            LOGGER.info("Prompt for file for %s", platform_name)
+            yield donate_logs(f"{session_id}-tracking")
+
+            # Render the propmt file page
+            promptFile = prompt_file("text/csv", platform_name)
+            file_result = yield render_page(platform_name, promptFile, progress)
+
+            if file_result.__type__ == "PayloadString":
+                validation = validation_fun(file_result.value)
+
+                # DDP is recognized: Status code zero
+                if validation.status_code.id == 0: 
+                    LOGGER.info("Payload for %s", platform_name)
+                    yield donate_logs(f"{session_id}-tracking")
+
+                    table_list = extraction_fun(file_result.value, validation)
                     break
 
-        # The participant did not submit a file and pressed skip
-        else:
-            break
+                # DDP is not recognized: Different status code
+                if validation.status_code.id != 0: 
+                    LOGGER.info("Not a valid %s zip; No payload; prompt retry_confirmation", platform_name)
+                    yield donate_logs(f"{session_id}-tracking")
+                    retry_result = yield render_page(platform_name, retry_confirmation(platform_name), progress)
 
-    yield exit_port(0, "Success")
+                    if retry_result.__type__ == "PayloadTrue":
+                        continue
+                    else:
+                        LOGGER.info("Skipped during retry %s", platform_name)
+                        yield donate_logs(f"{session_id}-tracking")
+                        break
+            else:
+                LOGGER.info("Skipped %s", platform_name)
+                yield donate_logs(f"{session_id}-tracking")
+                break
+
+        progress += step_percentage
+
+        # Render data on screen
+        if table_list is not None:
+            LOGGER.info("Prompt consent; %s", platform_name)
+            yield donate_logs(f"{session_id}-tracking")
+
+            # Check if extract something got extracted
+            if len(table_list) == 0:
+                table_list.append(create_empty_table(platform_name))
+
+            prompt = assemble_tables_into_form(table_list)
+            consent_result = yield render_page(platform_name, prompt, progress)
+
+            if consent_result.__type__ == "PayloadJSON":
+                LOGGER.info("Data donated; %s", platform_name)
+                yield donate_logs(f"{session_id}-tracking")
+                yield donate(platform_name, consent_result.value)
+            else:
+                LOGGER.info("Skipped ater reviewing consent: %s", platform_name)
+                yield donate_logs(f"{session_id}-tracking")
+
     yield render_end_page()
+    yield exit(0, "Success")
 
 
-def extract_the_data_you_are_interested_in(zip_file: str) -> pd.DataFrame:
+
+def assemble_tables_into_form(table_list: list[props.PropsUIPromptConsentFormTable]) -> props.PropsUIPromptConsentForm:
     """
-    This function extracts the data the researcher is interested in
-
-    In this case we extract from the zipfile:
-    * The file names
-    * The compressed file size
-    * The file size
-
-    You could extract anything here
+    Assembles all donated data in consent form to be displayed
     """
-    names = []
-    out = pd.DataFrame()
-
-    try:
-        file = zipfile.ZipFile(zip_file)
-        data = []
-        for name in file.namelist():
-            names.append(name)
-            info = file.getinfo(name)
-            data.append((name, info.compress_size, info.file_size))
-
-        out = pd.DataFrame(data, columns=["File name", "Compressed file size", "File size"])
-
-    except Exception as e:
-        print(f"Something went wrong: {e}")
-
-    return out
+    return props.PropsUIPromptConsentForm(table_list, [])
 
 
-def validate_the_participants_input(zip_file: str) -> bool:
+def donate_logs(key):
+    log_string = LOG_STREAM.getvalue()  # read the log stream
+    if log_string:
+        log_data = log_string.split("\n")
+    else:
+        log_data = ["no logs"]
+
+    return donate(key, json.dumps(log_data))
+
+
+def create_empty_table(platform_name: str) -> props.PropsUIPromptConsentFormTable:
     """
-    Check if the participant actually submitted a zipfile
-    Returns True if participant submitted a zipfile, otherwise False
-
-    In reality you need to do a lot more validation.
-    Some things you could check:
-    - Check if the the file(s) are the correct format (json, html, binary, etc.)
-    - If the files are in the correct language
+    Show something in case no data was extracted
     """
+    title = props.Translatable({
+       "en": "Er ging niks mis, maar we konden niks vinden",
+       "nl": "Er ging niks mis, maar we konden niks vinden"
+    })
+    df = pd.DataFrame(["No data found"], columns=["No data found"])
+    table = props.PropsUIPromptConsentFormTable(f"{platform_name}_no_data_found", title, df)
+    return table
 
-    try:
-        with zipfile.ZipFile(zip_file) as zf:
-            return True
-    except zipfile.BadZipFile:
-        return False
+
+def extract_slack(filename: str, _) -> list[props.PropsUIPromptConsentFormTable]:
+    tables_to_render = []
+
+    df = slack.slack_logins_to_df(filename)
+    if not df.empty:
+        table_title = props.Translatable({"en": "Slack", "nl": "Slack"})
+        table =  props.PropsUIPromptConsentFormTable("slack", table_title, df) 
+        tables_to_render.append(table)
+
+    return tables_to_render
 
 
 def render_end_page():
-    """
-    Renders a thank you page
-    """
     page = props.PropsUIPageEnd()
     return CommandUIRender(page)
 
 
-def render_page(platform: str, body):
-    """
-    Renders the UI components
-    """
-    header = props.PropsUIHeader(props.Translatable({"en": platform, "nl": platform }))
-    footer = props.PropsUIFooter()
+def render_page(platform, body, progress):
+    header = props.PropsUIHeader(props.Translatable({"en": platform, "nl": platform}))
+
+    footer = props.PropsUIFooter(progress)
     page = props.PropsUIPageDonation(platform, header, body, footer)
     return CommandUIRender(page)
 
 
-def generate_retry_prompt(platform: str) -> props.PropsUIPromptConfirm:
-    text = props.Translatable({
-        "en": f"Unfortunately, we cannot process your {platform} file. Continue, if you are sure that you selected the right file. Try again to select a different file.",
-        "nl": f"Helaas, kunnen we uw {platform} bestand niet verwerken. Weet u zeker dat u het juiste bestand heeft gekozen? Ga dan verder. Probeer opnieuw als u een ander bestand wilt kiezen."
-    })
-    ok = props.Translatable({
-        "en": "Try again",
-        "nl": "Probeer opnieuw"
-    })
-    cancel = props.Translatable({
-        "en": "Continue",
-        "nl": "Verder"
-    })
+def retry_confirmation(platform):
+    text = props.Translatable(
+        {
+            "en": f"Unfortunately, we could not process your {platform} file. If you are sure that you selected the correct file, press Continue. To select a different file, press Try again.",
+            "nl": f"Helaas, kunnen we uw {platform} bestand niet verwerken. Weet u zeker dat u het juiste bestand heeft gekozen? Ga dan verder. Probeer opnieuw als u een ander bestand wilt kiezen."
+        }
+    )
+    ok = props.Translatable({"en": "Try again", "nl": "Probeer opnieuw"})
+    cancel = props.Translatable({"en": "Continue", "nl": "Verder"})
     return props.PropsUIPromptConfirm(text, ok, cancel)
 
 
-def generate_file_prompt(platform, extensions) -> props.PropsUIPromptFileInput:
-    description = props.Translatable({
-        "en": f"Please follow the download instructions and choose the file that you stored on your device. Click “Skip” at the right bottom, if you do not have a {platform} file. ",
-        "nl": f"Volg de download instructies en kies het bestand dat u opgeslagen heeft op uw apparaat. Als u geen {platform} bestand heeft klik dan op “Overslaan” rechts onder."
-    })
+def prompt_file(extensions, platform):
+    description = props.Translatable(
+        {
+            "en": f"Please follow the download instructions and choose the file that you stored on your device. Click “Skip” at the right bottom, if you do not have a file from {platform}.",
+            "nl": f"Volg de download instructies en kies het bestand dat u opgeslagen heeft op uw apparaat. Als u geen {platform} bestand heeft klik dan op “Overslaan” rechts onder."
+        }
+    )
     return props.PropsUIPromptFileInput(description, extensions)
-
-
-def generate_consent_prompt(df: pd.DataFrame) -> props.PropsUIPromptConsentForm:
-    table_title = props.Translatable({
-        "en": "Zip file contents",
-        "nl": "Inhoud zip bestand"
-    })
-    table = props.PropsUIPromptConsentFormTable("zip_contents", table_title, df)
-    return props.PropsUIPromptConsentForm([table], [])
 
 
 def donate(key, json_string):
     return CommandSystemDonate(key, json_string)
 
 
-def exit_port(code, info):
+def exit(code, info):
     return CommandSystemExit(code, info)

@@ -22,8 +22,10 @@ const Embedded = ({ elements }: MainProps): JSX.Element => {
 
 const Standalone = ({ elements }: MainProps): JSX.Element => {
   return (
-    <div className="p-4 sm:p-8 md:p-12 flex justify-center w-full h-full">
-      <div className="max-w-7xl">{elements}</div>
+    <div className='w-full h-full flex justify-center items-center mt-10'>
+        <div className="max-w-screen-lg">
+            {elements}
+        </div>
     </div>
   );
 };
