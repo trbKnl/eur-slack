@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  REACT_APP_BUILD: standalone
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
