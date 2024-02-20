@@ -1,9 +1,8 @@
 """
-DDP extract Linkedin
+DDP extract Slack
 """
 from pathlib import Path
 import logging
-import zipfile
 
 import pandas as pd
 
@@ -56,7 +55,6 @@ def validate(filename: Path) -> ValidateInput:
 
     validation.set_status_code(0)
     return validation
-
 
 
 def slack_logins_to_df(filename: str) -> pd.DataFrame:
