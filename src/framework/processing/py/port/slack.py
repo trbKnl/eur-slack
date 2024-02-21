@@ -58,5 +58,18 @@ def validate(filename: Path) -> ValidateInput:
 
 
 def slack_logins_to_df(filename: str) -> pd.DataFrame:
-    df = unzipddp.read_csv_from_file_to_df(filename)
-    return df
+    out = pd.DataFrame()
+    cols_to_keep = [
+     "Date Accessed", 
+     "Last Date Accessed",
+     "User Agent - Simple",
+     "Number of Logins",
+    ]
+    try:
+        out = unzipddp.read_csv_from_file_to_df(filename)
+        out = out[cols_to_keep]
+
+    except Exception as e:
+        logger.error(e)
+
+    return out
