@@ -31,11 +31,6 @@ def process(session_id):
         ("Slack", extract_slack, slack.validate), 
     ]
 
-    # progress in %
-    subflows = len(platforms)
-    steps = 2
-    step_percentage = (100 / subflows) / steps
-    progress = 0
 
     # For each platform
     # 1. Prompt file extraction loop
@@ -44,7 +39,6 @@ def process(session_id):
         platform_name, extraction_fun, validation_fun = platform
 
         table_list = None
-        progress += step_percentage
 
         # Prompt file extraction loop
         while True:
@@ -53,7 +47,7 @@ def process(session_id):
 
             # Render the propmt file page
             promptFile = prompt_file("text/csv", platform_name)
-            file_result = yield render_page(platform_name, promptFile, progress)
+            file_result = yield render_page(platform_name, promptFile)
 
             if file_result.__type__ == "PayloadString":
                 validation = validation_fun(file_result.value)
@@ -70,7 +64,7 @@ def process(session_id):
                 if validation.status_code.id != 0: 
                     LOGGER.info("Not a valid %s zip; No payload; prompt retry_confirmation", platform_name)
                     yield donate_logs(f"{session_id}-tracking")
-                    retry_result = yield render_page(platform_name, retry_confirmation(platform_name), progress)
+                    retry_result = yield render_page(platform_name, retry_confirmation(platform_name))
 
                     if retry_result.__type__ == "PayloadTrue":
                         continue
@@ -83,7 +77,6 @@ def process(session_id):
                 yield donate_logs(f"{session_id}-tracking")
                 break
 
-        progress += step_percentage
 
         # Render data on screen
         if table_list is not None:
@@ -95,7 +88,7 @@ def process(session_id):
                 table_list.append(create_empty_table(platform_name))
 
             prompt = assemble_tables_into_form(table_list)
-            consent_result = yield render_page(platform_name, prompt, progress)
+            consent_result = yield render_page(platform_name, prompt)
 
             if consent_result.__type__ == "PayloadJSON":
                 LOGGER.info("Data donated; %s", platform_name)
@@ -157,10 +150,10 @@ def render_end_page():
     return CommandUIRender(page)
 
 
-def render_page(platform, body, progress):
+def render_page(platform, body):
     header = props.PropsUIHeader(props.Translatable({"en": platform, "nl": platform}))
 
-    footer = props.PropsUIFooter(progress)
+    footer = props.PropsUIFooter()
     page = props.PropsUIPageDonation(platform, header, body, footer)
     return CommandUIRender(page)
 
