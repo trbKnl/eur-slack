@@ -3,9 +3,12 @@ DDP extract Slack
 """
 from pathlib import Path
 import logging
+import re
 
 import pandas as pd
 
+
+from dateutil import parser
 import port.unzipddp as unzipddp
 
 from port.validate import (
@@ -57,6 +60,35 @@ def validate(filename: Path) -> ValidateInput:
     return validation
 
 
+def format_timestamp(timestamp, to_string = True):
+    pattern = r'\(.*?\)'
+    timestamp = re.sub(pattern, '', timestamp)
+    if to_string:
+        return parser.parse(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+    else:
+        return parser.parse(timestamp)
+
+def hour_diff(row):
+    start_col = "Date Accessed"
+    end_col = "Last Date Accessed"
+    start_time = format_timestamp(row[start_col], to_string = False)
+    end_time = format_timestamp(row[end_col], to_string = False)
+
+    time_diff_hours = (end_time - start_time).total_seconds() / 3600
+    return time_diff_hours
+
+
+def try_to_clean_timestamps_in_df(df):
+    try:
+        df["Login duration in hours"] = df.apply(hour_diff, axis=1)
+        df["Date Accessed"] = df["Date Accessed"].apply(lambda x: format_timestamp(x))
+        df["Last Date Accessed"] = df["Last Date Accessed"].apply(lambda x: format_timestamp(x))
+    except Exception as e:
+        logger.error(e)
+    
+    return df
+
+
 def slack_logins_to_df(filename: str) -> pd.DataFrame:
     out = pd.DataFrame()
     cols_to_keep = [
@@ -68,8 +100,14 @@ def slack_logins_to_df(filename: str) -> pd.DataFrame:
     try:
         out = unzipddp.read_csv_from_file_to_df(filename)
         out = out[cols_to_keep]
+        out = try_to_clean_timestamps_in_df(out)
 
     except Exception as e:
         logger.error(e)
 
     return out
+
+
+
+
+

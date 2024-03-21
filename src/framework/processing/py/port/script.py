@@ -138,8 +138,43 @@ def extract_slack(filename: str, _) -> list[props.PropsUIPromptConsentFormTable]
 
     df = slack.slack_logins_to_df(filename)
     if not df.empty:
+        wordcloud = {
+            "title": {"en": "User agent", "nl": "User agent"},
+            "type": "wordcloud",
+            "textColumn": "User Agent - Simple"
+        }
+        hours_logged_in = {
+            "title": {"en": "Hours logged in by day", "nl": "Uren ingelogd per dag"},
+            "type": "area",
+            "group": {
+                "column": "Date Accessed",
+                "dateFormat": "month_cycle"
+            },
+            "values": [{
+                "column": "Login duration in hours",
+                "aggregate": "sum",
+            }]
+        }
+        at_what_time = {
+            "title": {"en": "Total time logged in by hour", "nl": "Totaal ingelogde tijd per uur van de dag"},
+            "type": "bar",
+            "group": {
+                "column": "Date Accessed",
+                "dateFormat": "hour_cycle"
+            },
+            "values": [{
+                "column": "Login duration in hours",
+                "aggregate": "sum",
+            }]
+        }
+        text = "CHANGE THIS TEXT. Short explanation what the plots are: first one, hours logged in by month. It groups login duration in hours based on start date. Second: Total login by hours, same issue. Third, wordcloud with user agent, gives a nice overview of all devices you used. These plots are not perfect they dont deal with time spanning multiple days, but the plots are a close enough representration of reality"
+
+        table_description = props.Translatable({
+            "en": text,
+            "nl": text,
+        })
         table_title = props.Translatable({"en": "Slack", "nl": "Slack"})
-        table =  props.PropsUIPromptConsentFormTable("slack", table_title, df) 
+        table =  props.PropsUIPromptConsentFormTable("slack", table_title, df, table_description, [hours_logged_in, at_what_time, wordcloud]) 
         tables_to_render.append(table)
 
     return tables_to_render
