@@ -144,11 +144,11 @@ def extract_slack(filename: str, _) -> list[props.PropsUIPromptConsentFormTable]
             "textColumn": "User Agent - Simple"
         }
         hours_logged_in = {
-            "title": {"en": "Hours logged in by day", "nl": "Uren ingelogd per dag"},
+            "title": {"en": "Hours logged in by month of the year", "nl": "Uren ingelogd per maand van het jaar"},
             "type": "area",
             "group": {
                 "column": "Date Accessed",
-                "dateFormat": "month_cycle"
+                "dateFormat": "month"
             },
             "values": [{
                 "column": "Login duration in hours",
