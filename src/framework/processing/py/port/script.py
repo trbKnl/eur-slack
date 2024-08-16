@@ -47,7 +47,10 @@ def process(session_id):
 
             # Render the propmt file page
             promptFile = prompt_file("text/csv", platform_name)
-            file_result = yield render_page(platform_name, promptFile)
+            file_result = yield render_page(
+                props.Translatable({"en": "Select your Slack file", "nl": "Selecteer uw Slack bestand"}),
+                promptFile
+            )
 
             if file_result.__type__ == "PayloadString":
                 validation = validation_fun(file_result.value)
@@ -64,7 +67,10 @@ def process(session_id):
                 if validation.status_code.id != 0: 
                     LOGGER.info("Not a valid %s zip; No payload; prompt retry_confirmation", platform_name)
                     yield donate_logs(f"{session_id}-tracking")
-                    retry_result = yield render_page(platform_name, retry_confirmation(platform_name))
+                    retry_result = yield render_page(
+                        props.Translatable({"en": "Slack", "nl": "Slack"}),
+                        retry_confirmation(platform_name)
+                    )
 
                     if retry_result.__type__ == "PayloadTrue":
                         continue
@@ -88,7 +94,10 @@ def process(session_id):
                 table_list.append(create_empty_table(platform_name))
 
             prompt = assemble_tables_into_form(table_list)
-            consent_result = yield render_page(platform_name, prompt)
+            consent_result = yield render_page(
+                props.Translatable({"en": "Your Slack data", "nl": "Uw Slack gegevens"}),
+                prompt
+            )
 
             if consent_result.__type__ == "PayloadJSON":
                 LOGGER.info("Data donated; %s", platform_name)
@@ -167,13 +176,17 @@ def extract_slack(filename: str, _) -> list[props.PropsUIPromptConsentFormTable]
                 "aggregate": "sum",
             }]
         }
-        text = "CHANGE THIS TEXT. Short explanation what the plots are: first one, hours logged in by month. It groups login duration in hours based on start date. Second: Total login by hours, same issue. Third, wordcloud with user agent, gives a nice overview of all devices you used. These plots are not perfect they dont deal with time spanning multiple days, but the plots are a close enough representration of reality"
 
         table_description = props.Translatable({
-            "en": text,
-            "nl": text,
+            "en": "The table shows when you accessed slack from different devices, and for how long. In the first figure you can see how many hours you stayed logged in per month of the year. In the second figure you can see the hours when you are likely to be on slack. In the third figure you can see on which device you used Slack the most.",
+            "nl": "De tabel toont wanneer u Slack hebt geopend vanaf verschillende apparaten en voor hoelang dat was. In de eerste grafiek kunt u zien hoeveel uur u per maand van het jaar ingelogd bent geweest. In de tweede grafiek kunt u zien op welke uren u waarschijnlijk op Slack bent geweest. In de derde grafiek kunt u zien op welk apparaat u Slack het meest hebt gebruikt.",
         })
-        table_title = props.Translatable({"en": "Slack", "nl": "Slack"})
+        table_title = props.Translatable(
+            {
+                "en": "Your Slack access logs",
+                "nl": "Uw Slack access logs"
+            }
+        )
         table =  props.PropsUIPromptConsentFormTable("slack", table_title, df, table_description, [hours_logged_in, at_what_time, wordcloud]) 
         tables_to_render.append(table)
 
@@ -185,11 +198,10 @@ def render_end_page():
     return CommandUIRender(page)
 
 
-def render_page(platform, body):
-    header = props.PropsUIHeader(props.Translatable({"en": platform, "nl": platform}))
-
+def render_page(header_text, body):
+    header = props.PropsUIHeader(header_text)
     footer = props.PropsUIFooter()
-    page = props.PropsUIPageDonation(platform, header, body, footer)
+    page = props.PropsUIPageDonation("slack", header, body, footer)
     return CommandUIRender(page)
 
 
