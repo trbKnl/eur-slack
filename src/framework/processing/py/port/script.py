@@ -107,8 +107,8 @@ def process(session_id):
                 LOGGER.info("Skipped ater reviewing consent: %s", platform_name)
                 yield donate_logs(f"{session_id}-tracking")
 
-    yield render_end_page()
     yield exit(0, "Success")
+    yield render_end_page()
 
 
 

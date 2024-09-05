@@ -78,36 +78,39 @@ def hour_diff(row):
     return time_diff_hours
 
 
-def try_to_clean_timestamps_in_df(df):
+def clean_df(df) -> pd.DataFrame:
     try:
+        # remove rows containing 'Google Calendar' from "User Agent - Simple"
+        df = df[df["User Agent - Simple"] != "Google Calendar"]
+
+        # Try to clean all timestamps
         df["Login duration in hours"] = df.apply(hour_diff, axis=1)
         df["Date Accessed"] = df["Date Accessed"].apply(lambda x: format_timestamp(x))
         df["Last Date Accessed"] = df["Last Date Accessed"].apply(lambda x: format_timestamp(x))
+
+
     except Exception as e:
         logger.error(e)
     
     return df
 
 
+
 def slack_logins_to_df(filename: str) -> pd.DataFrame:
     out = pd.DataFrame()
     cols_to_keep = [
-     "Date Accessed", 
-     "Last Date Accessed",
-     "User Agent - Simple",
-     "Number of Logins",
+         "Date Accessed", 
+         "Last Date Accessed",
+         "User Agent - Simple",
+         "Number of Logins",
     ]
     try:
         out = unzipddp.read_csv_from_file_to_df(filename)
         out = out[cols_to_keep]
-        out = try_to_clean_timestamps_in_df(out)
+        out = clean_df(out)
 
     except Exception as e:
         logger.error(e)
 
     return out
-
-
-
-
 
