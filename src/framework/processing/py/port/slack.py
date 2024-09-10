@@ -81,7 +81,7 @@ def hour_diff(row):
 def clean_df(df) -> pd.DataFrame:
     try:
         # remove rows containing 'Google Calendar' from "User Agent - Simple"
-        df = df[df["User Agent - Simple"] != "Google Calendar"]
+        df = df[df["User Agent - Simple"] != "Google Calendar"].reset_index(drop=True)
 
         # Try to clean all timestamps
         df["Login duration in hours"] = df.apply(hour_diff, axis=1)
